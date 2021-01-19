@@ -1,4 +1,4 @@
-module inSpaceWithOreHoldSelected%28Current%29 exposing (..)inSpaceWithOreHoldSelected : BotDecisionContext -> SeeUndockingComplete -> EveOnline.ParseUserInterface.InventoryWindow -> DecisionPathNode
+module inSpaceWithOreHoldSelected%28New%29 exposing (..)inSpaceWithOreHoldSelected : BotDecisionContext -> SeeUndockingComplete -> EveOnline.ParseUserInterface.InventoryWindow -> DecisionPathNode
 inSpaceWithOreHoldSelected context seeUndockingComplete inventoryWindowWithOreHoldSelected =
     if seeUndockingComplete.shipUI |> shipUIIndicatesShipIsWarpingOrJumping then
         describeBranch "I see we are warping."
@@ -34,28 +34,52 @@ inSpaceWithOreHoldSelected context seeUndockingComplete inventoryWindowWithOreHo
 
                         else
                             describeBranch ("The ore hold is not yet filled " ++ describeThresholdToUnload ++ ". Get more ore.")
-                                (case context.readingFromGameClient.targets |> List.head of
+                                (case context.readingFromGameClient |> topmostAsteroidFromOverviewWindow of
                                     Nothing ->
-                                        describeBranch "I see no locked target."
-                                            (travelToMiningSiteAndLaunchDronesAndTargetAsteroid context)
+                                        describeBranch "I see no asteroids in the overview. Looking for a belt to mine."
+                                            (returnDronesToBay context.readingFromGameClient
+                                                |> Maybe.withDefault
+                                                    (warpToMiningSite context.readingFromGameClient)
+                                            )
 
-                                    Just _ ->
-                                        {- Depending on the UI configuration, the game client might automatically target rats.
-                                           To avoid these targets interfering with mining, unlock them here.
-                                        -}
-                                        unlockTargetsNotForMining context
-                                            |> Maybe.withDefault
-                                                (describeBranch "I see a locked target."
-                                                    (case context |> knownMiningModules |> List.filter (.isActive >> Maybe.withDefault False >> not) |> List.head of
-                                                        Nothing ->
-                                                            describeBranch "All known mining modules are active."
-                                                                (readShipUIModuleButtonTooltips context
-                                                                    |> Maybe.withDefault waitForProgressInGame
+                                    Just asteroidInOverview ->
+                                        (travelToMiningSite context seeUndockingComplete)
+                                        case context.readingFromGameClient |> topmostNotAsteroidFromOverviewWindow of
+                                            Nothing ->
+                                                returnDronesToBay context.readingFromGameClient
+                                                    |> Maybe.withDefault
+                                                        (lockTargetFromOverviewEntryAndEnsureIsInRange
+                                                            context.readingFromGameClient
+                                                            context.eventContext.appSettings.miningModuleRange
+                                                            asteroidInOverview
+                                                            |> Maybe.withDefault
+                                                                (launchAndEngageMiningDrones context.readingFromGameClient
+                                                                    |> Maybe.withDefault
+                                                                        (case context |> knownMiningModules |> List.filter (.isActive >> Maybe.withDefault False >> not) |> List.head of
+                                                                            Nothing ->
+                                                                                describeBranch "All known mining modules are active."
+                                                                                    (readShipUIModuleButtonTooltips context
+                                                                                        |> Maybe.withDefault waitForProgressInGame
+                                                                                    )
+
+                                                                            Just inactiveModule ->
+                                                                                describeBranch "I see an inactive mining module. Activating it."
+                                                                                    (clickModuleButtonButWaitIfClickedInPreviousStep context inactiveModule)
+                                                                        )
                                                                 )
+                                                        )
 
-                                                        Just inactiveModule ->
-                                                            describeBranch "I see an inactive mining module. Activate it."
-                                                                (clickModuleButtonButWaitIfClickedInPreviousStep context inactiveModule)
-                                                    )
-                                                )
+                                            Just notasteroidInOverview ->
+                                                unlockTargetsForMining context
+                                                    |> Maybe.withDefault
+                                                        (returnDronesToBay context.readingFromGameClient
+                                                            |> Maybe.withDefault
+                                                                (lockTargetFromOverviewEntryAndEnsureIsInRange
+                                                                    context.readingFromGameClient
+                                                                    context.eventContext.appSettings.ratsTargetingRange
+                                                                    notasteroidInOverview
+                                                                    |> Maybe.withDefault
+                                                                        (launchAndEngageCombatDrones context.readingFromGameClient)
+                                                                )
+                                                        )
                                 )
