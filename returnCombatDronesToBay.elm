@@ -1,56 +1,21 @@
--- Here is a working launchAndEngageCombatDrone. I would like to know how to do the same customization but with the returnDrones function.
+-- I would like to modify this to let me click on specific drones group to return to bay.
 
-launchAndEngageCombatDrones : ReadingFromGameClient -> Maybe DecisionPathNode
-launchAndEngageCombatDrones readingFromGameClient =
+returnDronesToBay : ReadingFromGameClient -> Maybe DecisionPathNode
+returnDronesToBay readingFromGameClient =
     readingFromGameClient.dronesWindow
+        |> Maybe.andThen .droneGroupInLocalSpace
         |> Maybe.andThen
-            (\dronesWindow ->
-                case ( dronesWindow.droneGroupInBay, dronesWindow.droneGroupInLocalSpace ) of
-                    ( Just droneGroupInBay, Just droneGroupInLocalSpace ) ->
-                        let
-                            idlingDrones =
-                                droneGroupInLocalSpace.drones
-                                    |> List.filter (.uiNode >> .uiNode >> EveOnline.ParseUserInterface.getAllContainedDisplayTexts >> List.any (String.toLower >> String.contains "idle"))
+            (\droneGroupInLocalSpace ->
+                if (droneGroupInLocalSpace.header.quantityFromTitle |> Maybe.withDefault 0) < 1 then
+                    Nothing
 
-                            dronesInBayQuantity =
-                                droneGroupInBay.header.quantityFromTitle |> Maybe.withDefault 0
-
-                            dronesInLocalSpaceQuantity =
-                                droneGroupInLocalSpace.header.quantityFromTitle |> Maybe.withDefault 0
-
-                            droneGroupExpectedDisplayText =
-                                "Hobgoblin (4)"
-                        in
-                        if 0 < (idlingDrones |> List.length) then
-                            Just
-                                (describeBranch "Engage idling drone(s)"
-                                    (useContextMenuCascade
-                                        ( "drones group", droneGroupInLocalSpace.header.uiNode )
-                                        (useMenuEntryWithTextContaining "engage" menuCascadeCompleted)
-                                        readingFromGameClient
-                                    )
-                                )
-
-                        else if 0 < dronesInBayQuantity && dronesInLocalSpaceQuantity < 5 then
-                            Just
-                                (describeBranch "Launch drones"
-                                    (case getDescendantWithDisplayText droneGroupExpectedDisplayText dronesWindow.uiNode of
-                                        Nothing ->
-                                            describeBranch
-                                                ("Did not find the node with display text '" ++ droneGroupExpectedDisplayText ++ "'")
-                                                askForHelpToGetUnstuck
-
-                                        Just droneGroupUiNode ->
-                                            useContextMenuCascade
-                                                ( "drones group", droneGroupUiNode )
-                                                (useMenuEntryWithTextContaining "Launch drones (4)" menuCascadeCompleted)
-                                                readingFromGameClient
-                                    )
-                                )
-
-                        else
-                            Nothing
-
-                    _ ->
-                        Nothing
+                else
+                    Just
+                        (describeBranch "I see there are drones in local space. Return those to bay."
+                            (useContextMenuCascade
+                                ( "drones group", droneGroupInLocalSpace.header.uiNode )
+                                (useMenuEntryWithTextContaining "Return to drone bay" menuCascadeCompleted)
+                                readingFromGameClient
+                            )
+                        )
             )
